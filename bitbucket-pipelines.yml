@@ -1,0 +1,100 @@
+# This is a sample build configuration for JavaScript.
+# Check our guides at https://confluence.atlassian.com/x/14UWN for more examples.
+# Only use spaces to indent your .yml configuration.
+# -----
+# You can specify a custom docker image from Docker Hub as your build environment.
+image: node:9.10.1
+
+definitions:
+  steps:
+    - step: &build-prerequisite
+        name: Build Prerequisite
+        caches:
+          - node
+        script:
+          - yarn
+          - yarn eslint-test
+    - step: &build-ct
+        name: Account Build
+        caches:
+          - node
+        script:
+          - yarn
+          - yarn qa:build
+        artifacts:
+          - staging/**
+    - step: &build-ct-prod
+        name: Account Build Prod
+        caches:
+          - node
+        script:
+          - yarn
+          - yarn prod:build
+        artifacts:
+          - build/**
+    - step: &deploy-build
+        name: Accounts Deploy - S3 Bucket
+        # set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY as environment variables
+        deployment: test # set to test, staging or production
+        trigger: manual # uncomment to have a manual step
+        image: atlassian/pipelines-awscli
+        script:
+          - aws s3 sync --delete staging s3://qa-staticresource/accounts-pwa/staging
+          - aws s3 sync --delete staging/build/static s3://qa-staticresource/accounts-pwa/staging/accounts-pwa/static
+    - step: &auto-deploy-build
+        name: Accounts Auto Deploy - S3 Bucket
+        # set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY as environment variables
+        deployment: test # set to test, staging or production
+        # trigger: manual # uncomment to have a manual step
+        image: atlassian/pipelines-awscli
+        script:
+          - aws s3 sync --delete staging s3://qa-staticresource/accounts-pwa/staging
+          - aws s3 sync --delete staging/build/static s3://qa-staticresource/accounts-pwa/staging/accounts-pwa/static
+    - step: &deploy-build-prod
+        name: Accounts Deploy prod - S3 Bucket
+        # set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY as environment variables
+        deployment: test # set to test, staging or production
+        trigger: manual # uncomment to have a manual step
+        image: atlassian/pipelines-awscli
+        script:
+          - aws s3 sync --delete build s3://accounts-pwa.cleartrip.com/accounts-pwa/build
+          - aws s3 sync --delete build/static s3://accounts-pwa.cleartrip.com/accounts-pwa/static
+          
+pipelines:
+  branches:
+    release/*:
+      - step: *build-prerequisite
+      - parallel:
+          - step:
+              <<: *build-ct-prod
+              script:
+                - yarn
+                - yarn prod:build
+      - step:
+          <<: *deploy-build-prod
+          deployment: production
+          trigger: manual
+          script:
+            - aws s3 sync --delete build s3://accounts-pwa.cleartrip.com/accounts-pwa/build
+            - aws s3 sync --delete build/static s3://accounts-pwa.cleartrip.com/accounts-pwa/static
+    feature/*:
+      - step: *build-prerequisite
+      - parallel:
+          - step: *build-ct
+      - step: *deploy-build
+    develop:
+      - step: *build-prerequisite
+      - parallel:
+          - step: *build-ct
+      - step: *auto-deploy-build
+    hotfix/*:
+      - step: *build-prerequisite
+      - parallel:
+          - step: *build-ct
+      - step: *deploy-build
+    bugfix/*:
+      - step: *build-prerequisite
+      - parallel:
+          - step: *build-ct
+      - step: *deploy-build
+  
